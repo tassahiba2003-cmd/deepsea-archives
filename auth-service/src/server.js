@@ -5,9 +5,8 @@ const authRoutes = require("./routes/authRoutes");
 const app = express();
 const PORT = 4000;
 
-app.use(express.json()); // Pour lire les données JSON
+app.use(express.json());
 
-// On branche les routes
 app.use("/", authRoutes);
 
 app.listen(PORT, () => {
