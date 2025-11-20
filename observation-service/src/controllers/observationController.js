@@ -46,7 +46,6 @@ exports.getSpeciesById = async (req, res) => {
 
 
 
-// --- GESTION DES OBSERVATIONS (NOUVEAU !) ---
 
 // 4. POST /observations (Créer une observation)
 exports.createObservation = async (req, res) => {
@@ -54,9 +53,33 @@ exports.createObservation = async (req, res) => {
     const { speciesId, description, dangerLevel } = req.body;
     const authorId = req.user.userId;
 
+    if (!description || description.trim() === "") {
+        return res.status(400).json({ error: "La description est obligatoire." });
+    }
+
     // compris entre 1 et 5
     if (dangerLevel < 1 || dangerLevel > 5) {
         return res.status(400).json({ error: "Le niveau de danger doit être entre 1 et 5" });
+    }
+
+    const lastObservation = await prisma.observation.findFirst({
+        where: {
+            authorId: authorId,              
+            speciesId: parseInt(speciesId)    
+        },
+        orderBy: { createdAt: 'desc' }        
+    });
+
+    if (lastObservation) {
+        const now = new Date();
+        const lastDate = new Date(lastObservation.createdAt);
+        const diffEnMinutes = (now - lastDate) / 1000 / 60; 
+
+        if (diffEnMinutes < 5) {
+            return res.status(429).json({ 
+                error: `Doucement ! Attendez encore ${Math.ceil(5 - diffEnMinutes)} minutes avant de reposter sur cette espèce.` 
+            });
+        }
     }
 
     const observation = await prisma.observation.create({
