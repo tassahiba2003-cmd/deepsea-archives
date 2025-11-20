@@ -1,0 +1,15 @@
+// src/server.js
+const express = require("express");
+const authRoutes = require("./routes/authRoutes");
+
+const app = express();
+const PORT = 4000;
+
+app.use(express.json()); // Pour lire les données JSON
+
+// On branche les routes
+app.use("/auth", authRoutes);
+
+app.listen(PORT, () => {
+  console.log(`🚀 Serveur Auth lancé sur http://localhost:${PORT}`);
+});
