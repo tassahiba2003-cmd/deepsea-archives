@@ -21,11 +21,11 @@ const authenticate = (req, res, next) => {
 };
 
 router.post("/species", authenticate, obsController.createSpecies);
-router.get("/species", authenticate, obsController.getAllSpecies);
-router.get("/species/:id", authenticate, obsController.getSpeciesById);
+router.get("/species", obsController.getAllSpecies);
+router.get("/species/:id", obsController.getSpeciesById);
 
 router.post("/observations", authenticate, obsController.createObservation);
-router.get("/species/:id/observations", authenticate, obsController.getObservationsBySpecies);
+router.get("/species/:id/observations", obsController.getObservationsBySpecies);
 
 router.post("/observations/:id/validate", authenticate, obsController.validateObservation);
 router.post("/observations/:id/reject", authenticate, obsController.rejectObservation);
