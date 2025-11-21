@@ -1,6 +1,8 @@
 // src/controllers/observationController.js
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
+const axios = require("axios");
+const AUTH_SERVICE_URL = "http://localhost:4000";
 
 // --- GESTION DES ESPÈCES ---
 
@@ -114,75 +116,77 @@ exports.getObservationsBySpecies = async (req, res) => {
 
 // --- VALIDATION ET MODÉRATION ---
 
-// 6. POST /observations/:id/validate (Valider)
+
+// Fonction utilitaire pour donner des points (évite de répéter le code)
+async function giveReputation(userId, amount) {
+  try {
+    await axios.patch(`${AUTH_SERVICE_URL}/users/${userId}/reputation`, { amount });
+  } catch (err) {
+    console.error(`Erreur points pour user ${userId}:`, err.message);
+  }
+}
+
+// 6. VALIDER (+3 pour l'auteur, +1 pour l'expert)
 exports.validateObservation = async (req, res) => {
   try {
     const { id } = req.params;
-    const validatorId = req.user.userId; 
+    const validatorId = req.user.userId;
 
-    // A. Vérifier le rôle (Pas de simples USER)
-    if (req.user.role === 'USER') {
-      return res.status(403).json({ error: "Action interdite aux simples utilisateurs." });
-    }
-
-    // B. Récupérer l'observation pour vérifier l'auteur
+    if (req.user.role === 'USER') return res.status(403).json({ error: "Interdit." });
     const observation = await prisma.observation.findUnique({ where: { id: parseInt(id) } });
-    if (!observation) return res.status(404).json({ error: "Observation introuvable." });
+    if (!observation) return res.status(404).json({ error: "Introuvable" });
+    if (observation.authorId === validatorId) return res.status(400).json({ error: "Auto-validation interdite" });
 
-    // C. Règle : Interdit de s'auto-valider
-    if (observation.authorId === validatorId) {
-      return res.status(400).json({ error: "Interdit de valider sa propre observation !" });
-    }
-
-    // D. Mise à jour
+    // Mise à jour statut
     const updatedObs = await prisma.observation.update({
       where: { id: parseInt(id) },
-      data: {
-        status: "VALIDATED",
-        validatedBy: validatorId,
-        validatedAt: new Date()
-      }
+      data: { status: "VALIDATED", validatedBy: validatorId, validatedAt: new Date() }
     });
 
-    res.json({ message: "Observation validée avec succès !", observation: updatedObs });
+    // --- DISTRIBUTION DES POINTS ---
+    // 1. Auteur : +3 points
+    await giveReputation(observation.authorId, 3);
+
+    // 2. Validateur (si Expert) : +1 point
+    // (On considère que le travail mérite salaire pour motiver les experts)
+    if (req.user.role === 'EXPERT') {
+        await giveReputation(validatorId, 1);
+    }
+
+    // 3. Rareté (Code précédent)
+    const validCount = await prisma.observation.count({ where: { speciesId: observation.speciesId, status: "VALIDATED" } });
+    await prisma.species.update({ where: { id: observation.speciesId }, data: { rarityScore: 1 + (validCount / 5) } });
+
+    res.json({ message: "Validé ! Points distribués.", observation: updatedObs });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ error: "Erreur serveur lors de la validation." });
+    res.status(500).json({ error: "Erreur serveur" });
   }
 };
 
-// 7. POST /observations/:id/reject (Rejeter)
+// 7. REJETER (-1 pour l'auteur)
 exports.rejectObservation = async (req, res) => {
-    try {
-      const { id } = req.params;
-      const validatorId = req.user.userId;
-  
-      // A. Vérifier le rôle
-      if (req.user.role === 'USER') {
-        return res.status(403).json({ error: "Action interdite aux simples utilisateurs." });
-      }
-  
-      // B. Vérifier l'auteur
-      const observation = await prisma.observation.findUnique({ where: { id: parseInt(id) } });
-      if (!observation) return res.status(404).json({ error: "Observation introuvable." });
-  
-      // C. Règle : Interdit de s'auto-rejeter 
-      if (observation.authorId === validatorId) {
-        return res.status(400).json({ error: "Interdit de rejeter sa propre observation !" });
-      }
-  
-      // D. Mise à jour
-      const updatedObs = await prisma.observation.update({
-        where: { id: parseInt(id) },
-        data: {
-          status: "REJECTED",
-          validatedBy: validatorId,
-          validatedAt: new Date()
-        }
-      });
-  
-      res.json({ message: "Observation rejetée.", observation: updatedObs });
-    } catch (error) {
-      res.status(500).json({ error: "Erreur serveur lors du rejet." });
-    }
-  };
+  try {
+    const { id } = req.params;
+    const validatorId = req.user.userId;
+
+    if (req.user.role === 'USER') return res.status(403).json({ error: "Interdit." });
+
+    const observation = await prisma.observation.findUnique({ where: { id: parseInt(id) } });
+    if (!observation) return res.status(404).json({ error: "Introuvable" });
+    if (observation.authorId === validatorId) return res.status(400).json({ error: "Auto-rejet interdit" });
+
+    const updatedObs = await prisma.observation.update({
+      where: { id: parseInt(id) },
+      data: { status: "REJECTED", validatedBy: validatorId, validatedAt: new Date() }
+    });
+
+    // --- DISTRIBUTION DES POINTS ---
+    // Auteur : -1 point
+    await giveReputation(observation.authorId, -1);
+
+    res.json({ message: "Rejeté. Points retirés.", observation: updatedObs });
+  } catch (error) {
+    res.status(500).json({ error: "Erreur serveur" });
+  }
+};

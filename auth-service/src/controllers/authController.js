@@ -155,3 +155,37 @@ exports.updateRole = async (req, res) => {
     res.status(400).json({ error: "Erreur (ID invalide ou rôle inexistant)." });
   }
 };
+
+// 6. PATCH /users/:id/reputation (Interne : Appelé par les autres services)
+exports.incrementReputation = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { amount } = req.body; // Le nombre de points (ex: 3, 1, -1)
+
+    // 1. On met à jour les points
+    const updatedUser = await prisma.user.update({
+      where: { id: parseInt(id) },
+      data: {
+        reputation: { increment: parseInt(amount) }
+      }
+    });
+
+    // 2. LOGIQUE "LEVEL UP" : Passage automatique en EXPERT
+    let message = "Réputation mise à jour.";
+    
+    // Si l'user dépasse 10 points et est encore un simple USER, il monte en grade !
+    if (updatedUser.reputation >= 10 && updatedUser.role === 'USER') {
+      await prisma.user.update({
+        where: { id: parseInt(id) },
+        data: { role: 'EXPERT' }
+      });
+      message += " Félicitations ! L'utilisateur est devenu EXPERT !";
+    }
+
+    res.json({ message, user: updatedUser });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Erreur lors de la mise à jour de la réputation" });
+  }
+};
